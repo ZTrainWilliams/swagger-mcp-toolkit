@@ -4,13 +4,11 @@
  * @Description: 
  */
 import axios from 'axios';
+import { buildSwaggerRequestConfig, pickSwaggerRequestOptions, type SwaggerRequestOptions } from '../utils/swaggerLoader.js';
 
-export interface ListSwaggerResourcesParams {
+export interface ListSwaggerResourcesParams extends SwaggerRequestOptions {
   baseUrl?: string;
   suffix?: string;
-  headers?: Record<string, string>;
-  gatewayHeader?: string;
-  gatewayCode?: string;
 }
 
 export interface SwaggerResourceItem {
@@ -38,8 +36,8 @@ export async function listSwaggerResources(params: ListSwaggerResourcesParams): 
   const suf = (params.suffix ?? '/swagger-resources').replace(/^\/?/, '/');
   const url = base + suf;
 
-  const res = await axios.get(url);
-  console.log('listSwaggerResources response:', res);
+  const requestConfig = buildSwaggerRequestConfig(pickSwaggerRequestOptions(params));
+  const res = await axios.get(url, requestConfig);
   const data = Array.isArray(res.data) ? res.data : [];
   const items: SwaggerResourceItem[] = data.map((it: any) => {
     const loc = String(it.location || '');

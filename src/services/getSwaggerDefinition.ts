@@ -9,31 +9,7 @@ import { GetSwaggerParams , SavedSwaggerDefinition } from './core/interfaces.js'
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-
-function buildRequestHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    Accept: 'application/json, application/yaml, text/yaml, */*',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Swagger-MCP/1.0'
-  };
-  const extra = process.env.SWAGGER_FETCH_HEADERS;
-  if (extra) {
-    try {
-      const parsed = JSON.parse(extra);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        for (const [k, v] of Object.entries(parsed)) {
-          if (typeof v === 'string') headers[k] = v;
-        }
-      }
-    } catch {}
-  }
-  const knifeHeader = process.env.KNIFE4J_GATEWAY_REQUEST;
-  const knifeCode = process.env.KNIFE4J_GATEWAY_CODE || 'ROOT';
-  if (typeof knifeHeader === 'string') {
-    headers['knfie4j-gateway-request'] = knifeHeader;
-    headers['knfie4j-gateway-code'] = String(knifeCode);
-  }
-  return headers;
-}
+import { buildSwaggerRequestConfig, pickSwaggerRequestOptions } from '../utils/swaggerLoader.js';
 
 function sanitizeFileBaseName(input: string): string {
   const cleaned = input
@@ -74,23 +50,13 @@ export const getSwaggerDefinition = async (params: GetSwaggerParams) => {
     if (!params.saveLocation) {
       throw new Error('Save location is required');
     }
-    const mergedHeaders = buildRequestHeaders();
-    if (params.headers) {
-      for (const [k, v] of Object.entries(params.headers)) {
-        if (typeof v === 'string') mergedHeaders[k] = v;
-      }
-    }
-    if (typeof params.gatewayHeader === 'string') {
-      mergedHeaders['knfie4j-gateway-request'] = params.gatewayHeader;
-      mergedHeaders['knfie4j-gateway-code'] = String(params.gatewayCode || process.env.KNIFE4J_GATEWAY_CODE || 'ROOT');
-    }
+    const requestConfig = buildSwaggerRequestConfig(pickSwaggerRequestOptions(params));
 
     const response = await axios.get(params.url, {
-      headers: mergedHeaders,
+      ...requestConfig,
       responseType: 'json',
       validateStatus: (s) => s >= 200 && s < 500
     });
-    console.log('getSwaggerDefinition-Response:', response);
 
     // If the response is not a valid Swagger definition, throw an error
     if (!response.data.openapi && !response.data.swagger) {

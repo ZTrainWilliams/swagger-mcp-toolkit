@@ -15,6 +15,60 @@ import logger from './logger.js';
 // Load environment variables
 dotenv.config();
 
+export interface SwaggerBasicAuth {
+    username: string;
+    password: string;
+}
+
+export interface SwaggerRequestOptions {
+    headers?: Record<string, string>;
+    query?: Record<string, any>;
+    bearerToken?: string;
+    cookie?: string;
+    basicAuth?: SwaggerBasicAuth;
+    gatewayHeader?: string;
+    gatewayCode?: string;
+    timeoutMs?: number;
+}
+
+export function pickSwaggerRequestOptions(input: unknown): SwaggerRequestOptions {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+        return {};
+    }
+    const obj = input as Record<string, unknown>;
+    const out: SwaggerRequestOptions = {};
+
+    if (obj.headers && typeof obj.headers === 'object' && !Array.isArray(obj.headers)) {
+        out.headers = obj.headers as Record<string, string>;
+    }
+    if (obj.query && typeof obj.query === 'object' && !Array.isArray(obj.query)) {
+        out.query = obj.query as Record<string, any>;
+    }
+    if (typeof obj.bearerToken === 'string' && obj.bearerToken) {
+        out.bearerToken = obj.bearerToken;
+    }
+    if (typeof obj.cookie === 'string' && obj.cookie) {
+        out.cookie = obj.cookie;
+    }
+    if (obj.basicAuth && typeof obj.basicAuth === 'object' && !Array.isArray(obj.basicAuth)) {
+        const a = obj.basicAuth as Record<string, unknown>;
+        if (typeof a.username === 'string' && typeof a.password === 'string' && a.username && a.password) {
+            out.basicAuth = { username: a.username, password: a.password };
+        }
+    }
+    if (typeof obj.gatewayHeader === 'string' && obj.gatewayHeader) {
+        out.gatewayHeader = obj.gatewayHeader;
+    }
+    if (typeof obj.gatewayCode === 'string' && obj.gatewayCode) {
+        out.gatewayCode = obj.gatewayCode;
+    }
+    if (typeof obj.timeoutMs === 'number' && Number.isFinite(obj.timeoutMs) && obj.timeoutMs > 0) {
+        out.timeoutMs = obj.timeoutMs;
+    }
+
+    return out;
+}
+
 // Cache directory for swagger files
 const SWAGGER_CACHE_DIR = path.join(process.cwd(), 'swagger-cache');
 
@@ -37,6 +91,141 @@ export function getSwaggerUrlFromCLI(): string | null {
         return null;
     }
     return url.trim();
+}
+
+function parseJsonObject(value: unknown): Record<string, any> | null {
+    if (typeof value !== 'string') {
+        return null;
+    }
+    const text = value.trim();
+    if (!text) {
+        return null;
+    }
+    try {
+        const parsed = JSON.parse(text);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return null;
+        }
+        return parsed as Record<string, any>;
+    } catch {
+        return null;
+    }
+}
+
+function coerceStringRecord(input: unknown): Record<string, string> {
+    const out: Record<string, string> = {};
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+        return out;
+    }
+    for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+        if (typeof v === 'string') {
+            out[k] = v;
+        } else if (typeof v === 'number' || typeof v === 'boolean') {
+            out[k] = String(v);
+        }
+    }
+    return out;
+}
+
+function readEnvTimeoutMs(): number | undefined {
+    const raw = process.env.SWAGGER_FETCH_TIMEOUT_MS;
+    if (!raw) {
+        return undefined;
+    }
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function readEnvBasicAuth(): SwaggerBasicAuth | undefined {
+    const username = process.env.SWAGGER_FETCH_BASIC_USER;
+    const password = process.env.SWAGGER_FETCH_BASIC_PASS;
+    if (typeof username !== 'string' || typeof password !== 'string') {
+        return undefined;
+    }
+    if (!username.trim() || !password.trim()) {
+        return undefined;
+    }
+    return { username, password };
+}
+
+export function buildSwaggerRequestConfig(options?: SwaggerRequestOptions): {
+    headers: Record<string, string>;
+    params?: Record<string, any>;
+    timeout?: number;
+    auth?: SwaggerBasicAuth;
+} {
+    const headers: Record<string, string> = {
+        Accept: 'application/json, application/yaml, text/yaml, */*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Swagger-MCP/1.0'
+    };
+
+    const envHeaders = parseJsonObject(process.env.SWAGGER_FETCH_HEADERS);
+    Object.assign(headers, coerceStringRecord(envHeaders));
+
+    const knifeHeader = process.env.KNIFE4J_GATEWAY_REQUEST;
+    const knifeCode = process.env.KNIFE4J_GATEWAY_CODE || 'ROOT';
+    if (typeof knifeHeader === 'string' && knifeHeader) {
+        headers['knfie4j-gateway-request'] = knifeHeader;
+        headers['knfie4j-gateway-code'] = String(knifeCode);
+    }
+
+    const bearerFromEnv = process.env.SWAGGER_FETCH_BEARER_TOKEN;
+    if (typeof bearerFromEnv === 'string' && bearerFromEnv.trim() && !headers.Authorization) {
+        headers.Authorization = bearerFromEnv.startsWith('Bearer ') ? bearerFromEnv : `Bearer ${bearerFromEnv}`;
+    }
+
+    const cookieFromEnv = process.env.SWAGGER_FETCH_COOKIE;
+    if (typeof cookieFromEnv === 'string' && cookieFromEnv.trim() && !headers.Cookie) {
+        headers.Cookie = cookieFromEnv;
+    }
+
+    if (options?.bearerToken && !headers.Authorization) {
+        headers.Authorization = options.bearerToken.startsWith('Bearer ') ? options.bearerToken : `Bearer ${options.bearerToken}`;
+    }
+
+    if (options?.cookie && !headers.Cookie) {
+        headers.Cookie = options.cookie;
+    }
+
+    if (options?.headers) {
+        Object.assign(headers, coerceStringRecord(options.headers));
+    }
+
+    if (typeof options?.gatewayHeader === 'string' && options.gatewayHeader) {
+        headers['knfie4j-gateway-request'] = options.gatewayHeader;
+        headers['knfie4j-gateway-code'] = String(options.gatewayCode || process.env.KNIFE4J_GATEWAY_CODE || 'ROOT');
+    }
+
+    const envQuery = parseJsonObject(process.env.SWAGGER_FETCH_QUERY);
+    const params = {
+        ...(envQuery || {}),
+        ...(options?.query || {})
+    };
+
+    const timeout = typeof options?.timeoutMs === 'number' && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+        ? options.timeoutMs
+        : readEnvTimeoutMs();
+
+    const auth = options?.basicAuth ?? readEnvBasicAuth();
+
+    const config: {
+        headers: Record<string, string>;
+        params?: Record<string, any>;
+        timeout?: number;
+        auth?: SwaggerBasicAuth;
+    } = { headers };
+
+    if (Object.keys(params).length) {
+        config.params = params;
+    }
+    if (timeout) {
+        config.timeout = timeout;
+    }
+    if (auth) {
+        config.auth = auth;
+    }
+
+    return config;
 }
 
 /**
@@ -71,11 +260,10 @@ async function downloadAndCacheSwagger(url: string): Promise<string> {
     try {
         logger.info(`Downloading Swagger definition from ${url}`);
 
+        const requestConfig = buildSwaggerRequestConfig();
         const response = await axios.get(url, {
-            responseType: 'text', // Get raw text to handle both JSON and YAML
-            headers: {
-                'Accept': 'application/json, application/yaml, text/yaml'
-            }
+            ...requestConfig,
+            responseType: 'text'
         });
 
         // Try to parse as JSON first, then YAML if JSON fails

@@ -19,6 +19,59 @@ function sanitizeForLog(input: string): string {
   return input.replace(/[\r\n\x00-\x1F\x7F]+/g, '');
 }
 
+function redactHeadersForLog(headers: unknown): unknown {
+  if (!headers || typeof headers !== 'object' || Array.isArray(headers)) {
+    return headers;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(headers as Record<string, unknown>)) {
+    const key = k.toLowerCase();
+    if (key === 'authorization' || key === 'cookie' || key === 'set-cookie' || key === 'x-api-key' || key === 'api-key') {
+      out[k] = '[REDACTED]';
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function redactToolArgsForLog(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  if (typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(redactToolArgsForLog);
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const key = k.toLowerCase();
+    if (
+      key === 'password' ||
+      key === 'pass' ||
+      key === 'secret' ||
+      key === 'token' ||
+      key === 'bearertoken' ||
+      key === 'cookie' ||
+      key === 'apikey' ||
+      key === 'api_key' ||
+      key === 'access_token' ||
+      key === 'refresh_token'
+    ) {
+      out[k] = '[REDACTED]';
+      continue;
+    }
+    if (key === 'headers') {
+      out[k] = redactHeadersForLog(v);
+      continue;
+    }
+    out[k] = redactToolArgsForLog(v);
+  }
+  return out;
+}
+
 // Parse command line arguments
 const argv = minimist(process.argv.slice(2));
 const swaggerUrlFromCLI = argv['swagger-url'] || argv.swaggerUrl || null;
@@ -181,11 +234,10 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     logger.info(`Tool call received: ${request.params.name}`);
-    logger.info(`Tool arguments: ${JSON.stringify(request.params.arguments || {})}`);
+    logger.info(`Tool arguments: ${JSON.stringify(redactToolArgsForLog(request.params.arguments || {}))}`);
 
     const name = request.params.name;
     const input = request.params.arguments;
-    console.log('CallToolRequestSchema', request, input);
 
     switch (name) {
       case "getSwaggerDefinition":

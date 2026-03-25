@@ -26,6 +26,30 @@ export const getSwaggerDefinition = {
         type: "object",
         description: "Optional extra request headers for fetching Swagger file"
       },
+      query: {
+        type: "object",
+        description: "Optional query parameters appended to the URL when fetching Swagger"
+      },
+      bearerToken: {
+        type: "string",
+        description: "Optional bearer token. If provided, will send Authorization: Bearer <token> unless Authorization already exists in headers."
+      },
+      cookie: {
+        type: "string",
+        description: "Optional Cookie header value"
+      },
+      basicAuth: {
+        type: "object",
+        description: "Optional HTTP Basic Auth credentials",
+        properties: {
+          username: { type: "string", description: "Basic auth username" },
+          password: { type: "string", description: "Basic auth password" }
+        }
+      },
+      timeoutMs: {
+        type: "number",
+        description: "Optional request timeout in milliseconds"
+      },
       gatewayHeader: {
         type: "string",
         description: "Optional knfie4j-gateway-request header value"
@@ -50,7 +74,7 @@ export const getSwaggerDefinition = {
 // Tool handler
 export async function handleGetSwaggerDefinition(input: any) {
   logger.info('Calling swaggerService.getSwaggerDefinition()');
-  logger.info(`Query parameters: ${JSON.stringify(input)}`);
+  logger.info(`Input keys: ${Object.keys(input || {}).join(',')}`);
   
   try {
     const swaggerDefinition = await swaggerService.getSwaggerDefinition(input);
